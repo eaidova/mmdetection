@@ -3,25 +3,16 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import mmcv
 from .registry import DATASETS
-from ..datasets import XMLDataset
+from .xml_style import XMLDataset
 
 
 @DATASETS.register_module
 class VisualGenomeXMLDataset(XMLDataset):
-    def __init__(self,
-                 ann_file,
-                 pipeline,
-                 data_root=None,
-                 img_prefix='',
-                 seg_prefix=None,
-                 proposal_file=None,
-                 test_mode=False,
-                 filter_empty_gt=True):
-        self.classes_file = 'objects_vocab.txt' if data_root is None else osp.join(data_root, 'objects_vocab.txt')
+    def __init__(self, **kwargs):
+        data_root = kwargs.get('data_root')
+        self.classes_file = './data/vg/objects_vocab.txt' if data_root is None else osp.join(data_root, 'objects_vocab.txt')
         self.load_classes()
-        super(VisualGenomeXMLDataset, self).__init__(
-            ann_file, pipeline, data_root, img_prefix, seg_prefix, proposal_file, test_mode, filter_empty_gt
-        )
+        super(VisualGenomeXMLDataset, self).__init__(**kwargs)
 
     def load_classes(self):
         classes_list = mmcv.list_from_file(self.classes_file)
@@ -31,8 +22,10 @@ class VisualGenomeXMLDataset(XMLDataset):
         img_infos = []
         img_ids_annotation_ids = mmcv.list_from_file(ann_file)
         for img_id, img_ann_id in enumerate(img_ids_annotation_ids):
-            filename, ann_id = img_ids_annotation_ids.split()
+            filename, ann_id = img_ann_id.split()
             xml_path = osp.join(self.img_prefix, ann_id)
+            if not osp.exists(xml_path):
+               continue
             tree = ET.parse(xml_path)
             root = tree.getroot()
             size = root.find('size')
@@ -53,6 +46,8 @@ class VisualGenomeXMLDataset(XMLDataset):
         labels_ignore = []
         for obj in root.findall('object'):
             name = obj.find('name').text
+            if name not in self.cat2label:
+                continue
             label = self.cat2label[name]
             difficult = int(obj.find('difficult').text)
             bnd_box = obj.find('bndbox')

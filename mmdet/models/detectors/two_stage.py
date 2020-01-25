@@ -94,6 +94,32 @@ class TwoStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin,
             x = self.neck(x)
         return x
 
+    def extract_all_features(self, img, img_meta):
+        outs = ()
+        # backbone
+        x = self.extract_feat(img)
+        proposals = self.simple_test_rpn(x, img_meta, self.test_cfg.rpn)
+        # bbox head
+        rois = bbox2roi(proposals)
+        if self.with_bbox:
+            roi_feats = self.bbox_roi_extractor(
+                x[:len(self.bbox_roi_extractor.featmap_strides)], rois)
+            if self.with_shared_head:
+                roi_feats = self.shared_head(roi_feats)
+            cls_score, bbox_pred = self.bbox_head(roi_feats)
+
+            outs = outs + (rois, roi_feats, cls_score, bbox_pred)
+        # mask head
+        if self.with_mask:
+            mask_rois = rois
+            mask_feats = self.mask_roi_extractor(
+                x[:self.mask_roi_extractor.num_inputs], mask_rois)
+            if self.with_shared_head:
+                mask_feats = self.shared_head(mask_feats)
+            mask_pred = self.mask_head(mask_feats)
+            outs = outs + (mask_feats, mask_pred,)
+        return outs
+
     def forward_dummy(self, img):
         """Used for computing network flops.
 
