@@ -6,15 +6,16 @@ import numpy as np
 import mmcv
 import torch
 import torch.nn.functional as F
-from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
+#from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
 from mmcv.runner import get_dist_info, init_dist, load_checkpoint
-from mmdet.datasets import build_dataloader, build_dataset
+from mmdet.datasets import build_dataloader, DirectoryBasedDataset
 from mmdet.core import wrap_fp16_model, delta2bbox
 from mmdet.models import build_detector
 from mmdet.ops.nms import nms_wrapper
 
 FIELDNAMES = ["img_id", "img_h", "img_w", "objects_id", "objects_conf",  "num_boxes", "boxes", "features"]
 csv.field_size_limit(sys.maxsize)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='MMDet test detector')
@@ -151,26 +152,20 @@ def main():
         torch.backends.cudnn.benchmark = True
     cfg.model.pretrained = None
     cfg.data.test.test_mode = True
-    dataset = build_dataset(cfg.data.test)
+    dataset = DirectoryBasedDataset(args.data_dir, cfg.data.test.pipeline)
     data_loader = build_dataloader(
         dataset,
         imgs_per_gpu=1,
         workers_per_gpu=cfg.data.workers_per_gpu,
         shuffle=False)
-
     model = build_detector(cfg.model, train_cfg=None, test_cfg=cfg.test_cfg)
     fp16_cfg = cfg.get('fp16', None)
     if fp16_cfg is not None:
         wrap_fp16_model(model)
     checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
-    # old versions did not save class info in checkpoints, this walkaround is
-    # for backward compatibility
-    if 'CLASSES' in checkpoint['meta']:
-        model.CLASSES = checkpoint['meta']['CLASSES']
-    else:
-        model.CLASSES = dataset.CLASSES
+    model.CLASSES = checkpoint['meta']['CLASSES']
 
-    model = MMDataParallel(model, device_ids=[0])
+ #   model = MMDataParallel(model, device_ids=[0])
     results = extract_features(model, data_loader, args.max_features)
 
     print('\nwriting results to {}'.format(args.tsv_out))
