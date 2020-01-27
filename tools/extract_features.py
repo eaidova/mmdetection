@@ -21,9 +21,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description='MMDet test detector')
     parser.add_argument('config', help='test config file path')
     parser.add_argument('checkpoint', help='checkpoint file')
-    parser.add_argument('--max_features', type=int, required=False, default=100)
-    parser.add_argument('--min_features', type=int, required=False, default=1)
+    parser.add_argument('--max_obj', type=int, required=False, default=100)
     parser.add_argument('--data_dir', type=str, required=True)
+    parser.add_argument('--device', type=str, required=False, default='cuda:0')
     parser.add_argument(
         '--tsv_out',
         help='output result file name without extension',
@@ -95,11 +95,14 @@ def postprocess_features(model, rois, roi_feats, bbox_preds, cls_score, max_boxe
             bboxes[:, [1, 3]].clamp_(min=0, max=img_shape[0] - 1)
     cfg = model.test_cfg.rcnn
     det_bboxes, det_labels, keep = multiclass_nms_with_ids_preserving(bboxes, scores, cfg.score_thr, cfg.nms, cfg.max_per_img)
-    det_roi_feats = roi_feats[keep]
-    det_scores = scores[keep]
+    pooled_feats = roi_feats.mean(3).mean(2)
+    det_roi_feats = pooled_feats[keep].cpu().numpy()
+    det_scores = scores[keep, det_labels].cpu().numpy()
     if normalize_boxes:
-        bboxes[:, [0, 2]] /= img_shape[1]
-        bboxes[:, [1, 3]] /= img_shape[0]
+        det_bboxes[:, [0, 2]] /= img_shape[1]
+        det_bboxes[:, [1, 3]] /= img_shape[0]
+    det_labels = det_labels.cpu().numpy()
+    det_bboxes = det_bboxes.cpu().numpy()
     if len(det_labels) > max_boxes:
         keep_boxes = np.argsort(det_scores)[::-1][:max_boxes]
         det_bboxes = det_bboxes[keep_boxes]
@@ -117,20 +120,19 @@ def postprocess_features(model, rois, roi_feats, bbox_preds, cls_score, max_boxe
     }
 
 
-def extract_features(model, data_loader, max_obj=100):
+def extract_features(model, device, data_loader, max_obj=100):
+    model.to(device)
     model.eval()
     results = []
     dataset = data_loader.dataset
     prog_bar = mmcv.ProgressBar(len(dataset))
     for i, data in enumerate(data_loader):
         with torch.no_grad():
-            rois, roi_feats, bbox_pred, cls_scores = model.extract_all_features(**data)
-            img_shape = data['img_meta'][0]['img_shape']
-            scale_factor = data['img_meta'][0]['scale_factor']
-            height = img_shape[0] / scale_factor
-            width = img_shape[1] / scale_factor
+            rois, roi_feats, cls_scores, bbox_pred = model.extract_all_features(data['img'][0].to(device), data['img_meta'])
+            img_shape = data['img_meta'][0].data[0][0]['img_shape']
+            height, width, _ = data['img_meta'][0].data[0][0]['ori_shape']
             result_dict = {
-                'img_id': dataset.image_ids[i],
+                'img_id': dataset.img_infos[i]['id'],
                 'img_h': height,
                 'img_w': width
             }
@@ -164,12 +166,10 @@ def main():
         wrap_fp16_model(model)
     checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
     model.CLASSES = checkpoint['meta']['CLASSES']
-
- #   model = MMDataParallel(model, device_ids=[0])
-    results = extract_features(model, data_loader, args.max_features)
+    results = extract_features(model, args.device, data_loader, args.max_obj)
 
     print('\nwriting results to {}'.format(args.tsv_out))
-    with open(args.tsv_out, "r") as tsvfile:
+    with open(args.tsv_out, "w") as tsvfile:
         writer = csv.DictWriter(tsvfile, delimiter='\t', fieldnames=FIELDNAMES)
         writer.writerows(results)
 

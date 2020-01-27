@@ -62,9 +62,11 @@ class DirectoryBasedDataset(Dataset):
         return len(self.img_infos)
 
     def load_annotations(self, data_dir):
+        print('load annotation')
         im_infos = []
         images_list = list(Path(data_dir).glob('*'))
         images_list.sort()
+        prog_bar = mmcv.ProgressBar(len(images_list))
         for image_path in images_list:
             img_id = image_path.name.split('.')[0]
             image = mmcv.imread(str(image_path))
@@ -76,6 +78,7 @@ class DirectoryBasedDataset(Dataset):
                 width=width,
                 ann={}
             ))
+            prog_bar.update()
         return im_infos
 
     def load_proposals(self, proposal_file):
