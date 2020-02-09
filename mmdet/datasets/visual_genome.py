@@ -21,8 +21,10 @@ class VisualGenomeXMLDataset(XMLDataset):
     def load_annotations(self, ann_file):
         img_infos = []
         img_ids_annotation_ids = mmcv.list_from_file(ann_file)
+        img_ids = []
         for img_id, img_ann_id in enumerate(img_ids_annotation_ids):
             filename, ann_id = img_ann_id.split()
+            img_ids.append(img_id)
             xml_path = osp.join(self.img_prefix, ann_id)
             if not osp.exists(xml_path):
                continue
@@ -33,6 +35,8 @@ class VisualGenomeXMLDataset(XMLDataset):
             height = int(size.find('height').text)
             img_infos.append(
                 dict(id=img_id, filename=filename, width=width, height=height, annotation_id=ann_id))
+        self.img_ids = img_ids
+        self.cat_ids = dict(enumerate(self.CLASSES))
         return img_infos
 
     def get_ann_info(self, idx):

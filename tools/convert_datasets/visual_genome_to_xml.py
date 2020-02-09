@@ -5,7 +5,7 @@ import xml.etree.cElementTree as ET
 import argparse
 import mmcv
 
-DEFAULT_DATA_DIR = '../../data/vg'
+DEFAULT_DATA_DIR = './data/vg'
 DEFAULT_OUT_DIR = DEFAULT_DATA_DIR
 obj_vocab = 'objects_vocab.txt'
 
