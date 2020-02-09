@@ -13,7 +13,7 @@ from mmdet.core import wrap_fp16_model, delta2bbox
 from mmdet.models import build_detector
 from mmdet.ops.nms import nms_wrapper
 
-FIELDNAMES = ["img_id", "img_h", "img_w", "objects_id", "objects_conf",  "num_boxes", "boxes", "features"]
+FIELDNAMES = ["img_id", "img_h", "img_w", "objects_id", "objects_conf", "num_boxes", "boxes", "features"]
 csv.field_size_limit(sys.maxsize)
 
 
