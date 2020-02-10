@@ -13,11 +13,41 @@ def parse_args():
 
     return args
 
+common_attributes = {
+    'white', 'black', 'blue', 'green', 'red', 'brown', 'yellow', 'small', 'large', 'silver', 'wooden', 'orange', 'gray',
+    'grey', 'metal', 'pink', 'tall', 'long', 'dark'
+}
+
+
+def clean_string(string):
+    string = string.lower().strip()
+    if len(string) >= 1 and string[-1] == '.':
+        return string[:-1].strip()
+    return string
+
+
+def clean_objects(string):
+    string = clean_string(string)
+    words = string.split()
+    if len(words) > 1:
+        prefix_words_are_adj = True
+        for att in words[:-1]:
+            if att not in common_attributes:
+                prefix_words_are_adj = False
+        if prefix_words_are_adj:
+            return words[-1:], words[:-1]
+        else:
+            return [string], []
+    else:
+        return [string], []
+
+
 def generate_image_info(data_dir, imageset):
     with open(osp.join(data_dir, 'image_data.json')) as f:
         raw_img_data = json.load(f)
 
     images = []
+    image_ids = []
     for img in raw_img_data:
         file_name = img['url'].replace('https://cs.stanford.edu/people/rak248/', '')
         if file_name not in imageset:
@@ -29,20 +59,23 @@ def generate_image_info(data_dir, imageset):
             'file_name': file_name,
             'coco_id': img['coco_id']}
         )
+        image_ids.append(img['image_id'])
 
-    return images
+    return images, image_ids
 
 
-def generate_annotation(data_dir, label2cid):
-    with open( osp.join(data_dir, 'objects.json')) as f:
+def generate_annotation(data_dir, image_ids, label2cid):
+    with open(osp.join(data_dir, 'scene_graphs.json')) as f:
         raw_obj_data = json.load(f)
     annotations = []
     for img in raw_obj_data:
+        if img['image_id'] not in image_ids:
+            continue
         for obj in img['objects']:
-            synsets = obj['names']
-            if synsets[0] not in label2cid:
+            label, _ = clean_objects(obj['names'][0])
+            if label[0] not in label2cid:
                 continue
-            cid = label2cid[synsets[0]]
+            cid = label2cid[label[0]]
             bbox = [obj['x'], obj['y'], obj['w'], obj['h']]
             area = obj['w'] * obj['h']
             ann = {
@@ -63,7 +96,7 @@ def generate_categories(data_dir):
     with open(osp.join(data_dir, 'objects_vocab.txt')) as f:
         labels = f.readlines()
     categories = [
-        {'id': (n + 1), 'name': label} for n, label in enumerate(labels)]
+        {'id': (n + 1), 'name': label.replace('\n', '')} for n, label in enumerate(labels)]
     label2cid = {c['name']: c['id'] for c in categories}
 
     return categories, label2cid
@@ -79,9 +112,9 @@ def main():
     args = parse_args()
     image_subset = args.image_subset or osp.join(args.data_dir, 'test.txt')
     imageset = get_images_set(image_subset)
-    images = generate_image_info(args.data_dir, imageset)
+    images, image_ids = generate_image_info(args.data_dir, imageset)
     categories, label2cid = generate_categories(args.data_dir)
-    annotations = generate_annotation(args.data_dir, label2cid)
+    annotations = generate_annotation(args.data_dir, image_ids, label2cid)
     output_file = args.out_file or osp.join(args.data_dir, 'instances_vg_test.json')
     print('Annotation will be saved to {}'.format(output_file))
     with open(output_file, 'w') as f:

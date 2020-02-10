@@ -24,10 +24,10 @@ class VisualGenomeXMLDataset(XMLDataset):
         img_ids = []
         for img_id, img_ann_id in enumerate(img_ids_annotation_ids):
             filename, ann_id = img_ann_id.split()
-            img_ids.append(img_id)
             xml_path = osp.join(self.img_prefix, ann_id)
             if not osp.exists(xml_path):
-               continue
+                continue
+            img_ids.append(int(ann_id.split('/')[-1].split('.xml')[0]))
             tree = ET.parse(xml_path)
             root = tree.getroot()
             size = root.find('size')
@@ -36,7 +36,7 @@ class VisualGenomeXMLDataset(XMLDataset):
             img_infos.append(
                 dict(id=img_id, filename=filename, width=width, height=height, annotation_id=ann_id))
         self.img_ids = img_ids
-        self.cat_ids = dict(enumerate(self.CLASSES))
+        self.cat_ids = list(range(1, len(self.CLASSES) + 1))
         return img_infos
 
     def get_ann_info(self, idx):

@@ -5,20 +5,41 @@ import csv
 import numpy as np
 import mmcv
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-#from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
+from mmcv.parallel import MMDataParallel
 from mmcv.runner import get_dist_info, init_dist, load_checkpoint
 from mmdet.datasets import build_dataloader, DirectoryBasedDataset
 from mmdet.core import wrap_fp16_model, delta2bbox
 from mmdet.models import build_detector
 from mmdet.ops.nms import nms_wrapper
 
-FIELDNAMES = ["img_id", "img_h", "img_w", "objects_id", "objects_conf", "num_boxes", "boxes", "features"]
+FIELDNAMES = [
+    "img_id",
+    "img_h",
+    "img_w",
+    "objects_id",
+    "objects_conf",
+    "num_boxes",
+    "boxes",
+    "features",
+    'bbox_features',
+    'masks'
+]
 csv.field_size_limit(sys.maxsize)
 
 
+class FeatureExtractionWrapper(nn.Module):
+    def __init__(self, model):
+        super(FeatureExtractionWrapper, self).__init__()
+        self.model = model
+
+    def forward(self, img, img_meta):
+        return self.model.extract_all_features(img[0], img_meta[0])
+
+
 def parse_args():
-    parser = argparse.ArgumentParser(description='MMDet test detector')
+    parser = argparse.ArgumentParser(description='MMDet extract features')
     parser.add_argument('config', help='test config file path')
     parser.add_argument('checkpoint', help='checkpoint file')
     parser.add_argument('--max_obj', type=int, required=False, default=100)
@@ -80,22 +101,28 @@ def multiclass_nms_with_ids_preserving(multi_bboxes,
     return bboxes, labels, keep_ids
 
 
-def postprocess_features(model, rois, roi_feats, bbox_preds, cls_score, max_boxes, img_shape, normalize_boxes=True):
-    if isinstance(cls_score, list):
-        cls_score = sum(cls_score) / float(len(cls_score))
-    scores = F.softmax(cls_score, dim=1) if cls_score is not None else None
+def postprocess_features(model, features, max_boxes, img_shape, normalize_boxes=True):
+    bbox_rois, bbox_roi_feats, cls_scores, bbox_preds = features[:4]
+    mask_feats, masks = features[4:] if len(features) > 4 else None, None
+    mask_roi_feats = None
+
+    if isinstance(cls_scores, list):
+        cls_scores = sum(cls_scores) / float(len(cls_scores))
+    scores = F.softmax(cls_scores, dim=1) if cls_scores is not None else None
 
     if bbox_preds is not None:
-        bboxes = delta2bbox(rois[:, 1:], bbox_preds, model.bbox_head.target_means,
+        bboxes = delta2bbox(bbox_rois[:, 1:], bbox_preds, model.bbox_head.target_means,
                             model.bbox_head.target_stds, img_shape)
     else:
-        bboxes = rois[:, 1:].clone()
+        bboxes = bbox_rois[:, 1:].clone()
         if img_shape is not None:
             bboxes[:, [0, 2]].clamp_(min=0, max=img_shape[1] - 1)
             bboxes[:, [1, 3]].clamp_(min=0, max=img_shape[0] - 1)
     cfg = model.test_cfg.rcnn
-    det_bboxes, det_labels, keep = multiclass_nms_with_ids_preserving(bboxes, scores, cfg.score_thr, cfg.nms, cfg.max_per_img)
-    pooled_feats = roi_feats.mean(3).mean(2)
+    det_bboxes, det_labels, keep = multiclass_nms_with_ids_preserving(
+        bboxes, scores, cfg.score_thr, cfg.nms, cfg.max_per_img
+    )
+    pooled_feats = bbox_roi_feats.mean(3).mean(2)
     det_roi_feats = pooled_feats[keep].cpu().numpy()
     det_scores = scores[keep, det_labels].cpu().numpy()
     if normalize_boxes:
@@ -109,15 +136,25 @@ def postprocess_features(model, rois, roi_feats, bbox_preds, cls_score, max_boxe
         det_labels = det_labels[keep_boxes]
         det_scores = det_scores[keep_boxes]
         det_roi_feats = det_roi_feats[keep_boxes]
+        if mask_feats:
+            pooled_feats = mask_feats.mean(3).mean(2)
+            mask_roi_feats = pooled_feats[keep].cpu().numpy()
+            mask_roi_feats = mask_roi_feats[keep_boxes]
 
-    # min det case
-    return {
+    representation =  {
         'objects_id': base64.b64encode(det_labels),
         'objects_conf': base64.b64encode(det_scores),
         'num_boxes': len(det_labels),
         'boxes': base64.b64encode(det_bboxes),
-        'features': base64.b64encode(det_roi_feats)
+        'features': base64.b64encode(det_roi_feats if mask_roi_feats is None else mask_roi_feats)
     }
+    if mask_roi_feats is not None:
+        representation.update({
+            'bbox_features': base64.b64encode(det_roi_feats),
+            'masks': base64.b64encode(mask_roi_feats)
+        })
+
+    return representation
 
 
 def extract_features(model, device, data_loader, max_obj=100):
@@ -126,9 +163,10 @@ def extract_features(model, device, data_loader, max_obj=100):
     results = []
     dataset = data_loader.dataset
     prog_bar = mmcv.ProgressBar(len(dataset))
+    feature_extractor = MMDataParallel(FeatureExtractionWrapper(model), device_ids=[0])
     for i, data in enumerate(data_loader):
         with torch.no_grad():
-            rois, roi_feats, cls_scores, bbox_pred = model.extract_all_features(data['img'][0].to(device), data['img_meta'])
+            features = feature_extractor(**data)
             img_shape = data['img_meta'][0].data[0][0]['img_shape']
             height, width, _ = data['img_meta'][0].data[0][0]['ori_shape']
             result_dict = {
@@ -136,7 +174,7 @@ def extract_features(model, device, data_loader, max_obj=100):
                 'img_h': height,
                 'img_w': width
             }
-            result_dict.update(postprocess_features(model, rois, roi_feats, bbox_pred, cls_scores, max_obj, img_shape))
+            result_dict.update(postprocess_features(model, features, max_obj, img_shape))
             results.append(result_dict)
 
         batch_size = data['img'][0].size(0)
@@ -149,7 +187,6 @@ def extract_features(model, device, data_loader, max_obj=100):
 def main():
     args = parse_args()
     cfg = mmcv.Config.fromfile(args.config)
-    # set cudnn_benchmark
     if cfg.get('cudnn_benchmark', False):
         torch.backends.cudnn.benchmark = True
     cfg.model.pretrained = None
