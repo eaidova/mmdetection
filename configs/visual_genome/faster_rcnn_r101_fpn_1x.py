@@ -12,12 +12,12 @@ model = dict(
     neck=dict(
         type='FPN',
         in_channels=[256, 512, 1024, 2048],
-        out_channels=256,
+        out_channels=512,
         num_outs=5),
     rpn_head=dict(
         type='RPNHead',
-        in_channels=256,
-        feat_channels=256,
+        in_channels=512,
+        feat_channels=512,
         anchor_scales=[8],
         anchor_ratios=[0.5, 1.0, 2.0],
         anchor_strides=[4, 8, 16, 32, 64],
@@ -29,13 +29,13 @@ model = dict(
     bbox_roi_extractor=dict(
         type='SingleRoIExtractor',
         roi_layer=dict(type='RoIAlign', out_size=7, sample_num=2),
-        out_channels=256,
+        out_channels=512,
         featmap_strides=[4, 8, 16, 32]),
     bbox_head=dict(
         type='SharedFCBBoxHead',
         num_fcs=2,
-        in_channels=256,
-        fc_out_channels=1024,
+        in_channels=512,
+        fc_out_channels=2048,
         roi_feat_size=7,
         num_classes=1601,
         target_means=[0., 0., 0., 0.],
@@ -64,7 +64,7 @@ train_cfg = dict(
         debug=False),
     rpn_proposal=dict(
         nms_across_levels=False,
-        nms_pre=2000,
+        nms_pre=12000,
         nms_post=2000,
         max_num=2000,
         nms_thr=0.7,
@@ -105,7 +105,7 @@ img_norm_cfg = dict(
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='LoadAnnotations', with_bbox=True),
-    dict(type='Resize', img_scale=(1333, 800), keep_ratio=True),
+    dict(type='Resize', img_scale=(600, 600), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.5),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='Pad', size_divisor=32),
@@ -116,7 +116,7 @@ test_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(
         type='MultiScaleFlipAug',
-        img_scale=(1333, 800),
+        img_scale=(600, 600),
         flip=False,
         transforms=[
             dict(type='Resize', keep_ratio=True),
@@ -128,7 +128,7 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    imgs_per_gpu=1,
+    imgs_per_gpu=64,
     workers_per_gpu=2,
     data_root = './data/vg/',
     train=dict(
@@ -147,7 +147,7 @@ data = dict(
         img_prefix=data_root,
         pipeline=test_pipeline))
 # optimizer
-optimizer = dict(type='SGD', lr=0.02, momentum=0.9, weight_decay=0.0001)
+optimizer = dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(
