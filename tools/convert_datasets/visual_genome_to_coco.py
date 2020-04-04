@@ -117,7 +117,7 @@ def main():
     annotations = generate_annotation(args.data_dir, image_ids, label2cid)
     output_file = args.out_file or osp.join(args.data_dir, 'instances_vg_test.json')
     print('Annotation will be saved to {}'.format(output_file))
-    with open(output_file, 'w') as f:
+    with open(output_file, 'w+') as f:
         json.dump(
             {
                 'images': images,
