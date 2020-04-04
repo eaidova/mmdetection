@@ -12,12 +12,12 @@ model = dict(
     neck=dict(
         type='FPN',
         in_channels=[256, 512, 1024, 2048],
-        out_channels=512,
+        out_channels=256,
         num_outs=5),
     rpn_head=dict(
         type='RPNHead',
-        in_channels=512,
-        feat_channels=512,
+        in_channels=256,
+        feat_channels=256,
         anchor_scales=[8],
         anchor_ratios=[0.5, 1.0, 2.0],
         anchor_strides=[4, 8, 16, 32, 64],
@@ -34,7 +34,7 @@ model = dict(
     bbox_head=dict(
         type='SharedFCBBoxHead',
         num_fcs=2,
-        in_channels=512,
+        in_channels=256,
         fc_out_channels=2048,
         roi_feat_size=7,
         num_classes=1601,
@@ -98,14 +98,14 @@ test_cfg = dict(
     # e.g., nms=dict(type='soft_nms', iou_thr=0.5, min_score=0.05)
 )
 # dataset settings
-dataset_type = 'VisualGenomeXMLDataset'
+dataset_type = 'CocoDataset'
 data_root = './data/vg/'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 train_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='LoadAnnotations', with_bbox=True),
-    dict(type='Resize', img_scale=(600, 600), keep_ratio=True),
+    dict(type='Resize', img_scale=(1024, 600), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.5),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='Pad', size_divisor=32),
@@ -116,7 +116,7 @@ test_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(
         type='MultiScaleFlipAug',
-        img_scale=(600, 600),
+        img_scale=(1024, 600),
         flip=False,
         transforms=[
             dict(type='Resize', keep_ratio=True),
@@ -128,26 +128,26 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    imgs_per_gpu=64,
+    imgs_per_gpu=4,
     workers_per_gpu=2,
     data_root = './data/vg/',
-    train=dict(
+     train=dict(
         type=dataset_type,
-        ann_file=data_root + 'train.txt',
+        ann_file=data_root + 'coco_format/train.json',
         img_prefix=data_root,
         pipeline=train_pipeline),
     val=dict(
         type=dataset_type,
-        ann_file=data_root + 'val.txt',
+        ann_file=data_root + 'coco_format/val.json',
         img_prefix=data_root,
         pipeline=test_pipeline),
     test=dict(
         type=dataset_type,
-        ann_file=data_root + 'test.txt',
+        ann_file=data_root + 'test.json',
         img_prefix=data_root,
         pipeline=test_pipeline))
 # optimizer
-optimizer = dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.0001)
+optimizer = dict(type='SGD', lr=0.001, momentum=0.9, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(
@@ -155,7 +155,7 @@ lr_config = dict(
     warmup='linear',
     warmup_iters=500,
     warmup_ratio=1.0 / 3,
-    step=[8, 11])
+    step=[5, 10, 15, 20])
 checkpoint_config = dict(interval=1)
 # yapf:disable
 log_config = dict(
@@ -166,7 +166,7 @@ log_config = dict(
     ])
 # yapf:enable
 # runtime settings
-total_epochs = 12
+total_epochs = 20
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
 work_dir = './work_dirs/faster_rcnn_r101_fpn_1x'
