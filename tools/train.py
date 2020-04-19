@@ -98,6 +98,8 @@ def main():
 
     model = build_detector(
         cfg.model, train_cfg=cfg.train_cfg, test_cfg=cfg.test_cfg)
+    for param in model.bbox_head.fc_reg.parameters():
+        param.requires_grad = False
 
     datasets = [build_dataset(cfg.data.train)]
     if len(cfg.workflow) == 2:
